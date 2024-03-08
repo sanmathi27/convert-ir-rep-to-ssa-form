@@ -1,0 +1,1 @@
+            n.instr[k] = n.instr[k].replace(f'\t{var[0]} ', f'\t{var[0]}_{i} ', 1)

@@ -1,3 +1,15 @@
+#dominance tree generated, cfg converted to ssa
+#ancestors are found based on semi-number and dfs done to calculate dominance nums
+#phi nodes inserted at join points
+
+# DFS- performs dfs, assigns dfs numbers, constructs the vertex and parent dicts, records predecessors
+# ancsoflowsemi - determines semi numbers in the dominance frontier
+# dominators - compute immediate dominator for each node, even semi-dominators
+# findvars - recent occurence of a specific variable
+# process - initializations for renaming
+# rename - rename variables, update variable counts
+# insertphi - inserting phi funcs at join pts based on dominance frontier
+# computeDF - calculates dominance frontier for each node in cfg using DFS
 
 import copy
 import re
@@ -7,25 +19,27 @@ from conversion import *
 
 N=0
 
-def ancsoflowsemi(v,ancs,depfnums,semi): #find ancestor using semi number (dominance frontier)
-    u=v
-    while ancs[v]!=None:
-        if depfnums[semi[v]]<depfnums[semi[u]]:
-            u=v
-        v=ancs[v]
-    return u
-
-def DFS(p,n,depfnums,vertex,parent,pre):
+def DFS(p,n,depfnums,vertex,parent,pre): #depth first search to compute depth first numbering
     global N
-    pre[n]=pre[n] | {p}
+    pre[n]=pre[n] | {p} # add parent as predecessor
     if depfnums[n]==0:
-        depfnums[n]=N
-        vertex[N]=n
+        depfnums[n]=N # node -> depfsnums
+        vertex[N]=n # depfnums -> current node
         parent[n]=p
         N=N + 1
         for w in n.ch:
             DFS(n,w,depfnums,vertex,parent,pre)
 
+def ancsoflowsemi(v,ancs,depfnums,semi): #find ancestor using semi number (dominance frontier)
+    u=v
+    while ancs[v]!=None:
+        if depfnums[semi[v]]<depfnums[semi[u]]: #depth first numbering
+            u=v
+        v=ancs[v]
+    return u
+
+
+#find immediate dominator for each node
 def dominators(r):
     global N
     store={}
@@ -71,6 +85,7 @@ def dominators(r):
         store[s] |= {n}
         ancs[n]=p
         
+        #update immediate dominators n same dominators for each node
         for v in store[p]:
             y=ancsoflowsemi(v,ancs,depfnums,semi)
             if semi[y]==semi[v]:
@@ -79,13 +94,14 @@ def dominators(r):
                 samedom[v]=y
 
             store[p]=set()
-        
+    #update imm dom based on same dominators
     for i in range(1,N):
         n=vertex[i]
         if samedom[n]!=None:
             immdom[n]=immdom[samedom[n]] #cuz imm dom of n same as imm dom of same dominator
     return immdom
 
+#find out node set as imm dominator
 immdom=dominators(start)
 for i in immdom.keys():
     if immdom[i]!=None:
@@ -93,26 +109,32 @@ for i in immdom.keys():
 
 
 
-
+#last occurence of substr in str
 def findvars(str, substr, n):
     parts= str.split(substr, n+1)
+    #check if substr occurred less than n times
     if len(parts)<=n+1:
         return -1
     return len(str)-len(parts[-1])-len(substr)
 
+#return last element of list
 def last(x):
     return x[len(x)-1]
 
+#extract variables from string
 def returnVar(s):
     var=[]
     if s.find('goto ')!=-1:
         s=s[:s.find('goto ')]
+    #extract using regular exp
     for k in re.findall('\w\w*:?',s):
+        #skip keywords
         if k=='if' or ':' in k or k.isnumeric() or k=='$':
             continue
         var.append(k)
     return var
 
+#initialize lists and call renaming
 def process():
     cnt={}
     lisst={}
@@ -129,26 +151,27 @@ def rename(n,lisst,cnt):
         s=' '+n.instr[k]+' ' #dont remove pls
         n.instr[k]=s
         var=returnVar(s)
-        tempVar=var
+        temp=var
         if '$' not in s:
             if 'if' not in s and len(var)>0:
-                tempVar=var[1:]
-            for x in tempVar:
+                temp=var[1:] #exclude 'if'
+            #rename using the variable counting
+            for x in temp:
                 if x not in lisst.keys():
                     continue
                 i=last(lisst[x])
-                n.instr[k]=s.replace(' '+x+' ',' '+x+'_'+str(i)+' ') #generated
-                n.instr[k]=n.instr[k].replace('-'+x+' ',' '+x+'_'+str(i)+' ')
+                n.instr[k] = s.replace(f' {x} ', f' {x}_{i} ')  # Generate replacement
                 
-
+                
+        #incrementing variable counts
         if len(var)>0 and 'if' not in s and 'goto' not in s and var[0] in cnt.keys():
             cnt[var[0]]=cnt[var[0]]+1
             i=cnt[var[0]]
             lisst[var[0]].append(i)
-            n.instr[k]=n.instr[k].replace(' '+var[0]+' ',' '+var[0]+'_'+str(i)+' ',1)
-            n.instr[k]=n.instr[k].replace('\t'+var[0]+' ','\t'+var[0]+'_'+str(i)+' ',1)
+            n.instr[k] = n.instr[k].replace(f' {var[0]} ', f' {var[0]}_{i} ', 1)
+            n.instr[k] = n.instr[k].replace(f'\t{var[0]} ', f'\t{var[0]}_{i} ', 1) #for some reason the ones with tab wont get replaced if not for this line
 
-
+    #for the variables inside phi
     for y in n.ch:
         j=pre[y].index(n)
         for k in range(len(y.instr)):
@@ -162,7 +185,7 @@ def rename(n,lisst,cnt):
                 ind=findvars(line,a,j+1)
                 if ind!=-1 and a in allVar:
                     y.instr[k]=line[:ind]+a+'_'+str(last(lisst[a]))+line[ind+len(a):]#generated
-    
+    #for renaming in dominator tree
     for x in n.dom:
         if x==n:
             continue
@@ -178,7 +201,7 @@ def insertPhi(defi,DF,phi,pre):
                 defi[a] |= {n}  #find where 'a' is defined
         
         
-    
+    #insert phi funcs
     for a in var:
         phi[a] = set()
         w = defi[a].copy()
@@ -195,7 +218,7 @@ def insertPhi(defi,DF,phi,pre):
                     if a not in Y.oriv:
                         w.add(Y)
 
-
+#compute dominance frontiers
 def computeDF(n,DF):
     S=set()
     for y in n.ch:
@@ -211,12 +234,12 @@ def computeDF(n,DF):
                 S=S.union({w})
     DF[n]=S
 
-
+#stores dom frontiers
 DF={}
 
 computeDF(start,DF)
 phi={}
-defi={}
+defi={} #store defined variables
 
 
 for i in pre.keys():

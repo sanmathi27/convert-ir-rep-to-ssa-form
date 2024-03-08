@@ -6,11 +6,12 @@ loop:
 	if j >= 20 goto fl
 tr:
 	j  = i
-	k = k + 1
+	k = j + i
 	goto out
 fl:
 	j = k
 	k = k + 2
+	k = k +i
 out:
 	goto loop
 end:

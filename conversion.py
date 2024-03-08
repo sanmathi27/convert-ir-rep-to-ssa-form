@@ -20,19 +20,19 @@ var=set()
 f = open("test.txt", "r")
 t=f.read()
 l=[0]
-blN=[]
+blnumum=[]
 s=t.split('\n')
 
 for i in range(len(s)):
     if 'goto ' in s[i]:
         l.append(i+1)
-        blN.append(s[i][s[i].find('goto ')+5:])
-    if s[i][:len(s[i])-1] in blN:
+        blnum.append(s[i][s[i].find('goto ')+5:])
+    if s[i][:len(s[i])-1] in blnum:
         if i not in l:
             l.append(i)
-            blN.remove(s[i][:len(s[i])-1])
+            blnum.remove(s[i][:len(s[i])-1])
 
-for i in blN:
+for i in blnum:
     l=l+list(filter(lambda x: i+':' in s[x],range(len(s))))
         
 l.sort()
@@ -82,6 +82,6 @@ while cur!=None:
 
     cur=temp
 
-print('CFG\n\n')
+print('CFG')
 for i in bl:
     i.disp()

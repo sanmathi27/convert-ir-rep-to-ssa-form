@@ -127,7 +127,7 @@ def returnVar(s):
     if s.find('goto ')!=-1:
         s=s[:s.find('goto ')]
     #extract using regular exp
-    for k in re.findall('\w\w*:?',s):
+    for k in re.findall(r'\b\w+\b', s):
         #skip keywords
         if k=='if' or ':' in k or k.isnumeric() or k=='$':
             continue
@@ -144,7 +144,7 @@ def process():
         lisst[a].append(0)
     rename(start,lisst,cnt)
 
-
+replaced_vars = set()
 def rename(n,lisst,cnt):
     o=copy.deepcopy(n.instr)
     for k in range(len(n.instr)):
@@ -155,14 +155,15 @@ def rename(n,lisst,cnt):
         if '$' not in s:
             if 'if' not in s and len(var)>0:
                 temp=var[1:] #exclude 'if'
+                print(temp)
             #rename using the variable counting
             for x in temp:
-                if x not in lisst.keys():
-                    continue
+                print(x)
                 i=last(lisst[x])
-                n.instr[k] = s.replace(f' {x} ', f' {x}_{i} ')  # Generate replacement
-                
-                
+                print(i)
+                n.instr[k] = s.replace(f'{x} ', f'{x}_{i} ').replace(f'^{x} ', f'^{x}_{i} ') 
+                s=n.instr[k] # Generate replacement
+                n.instr[k]=n.instr[k].replace('-'+x+' ',' '+x+'_'+str(i)+' ')
         #incrementing variable counts
         if len(var)>0 and 'if' not in s and 'goto' not in s and var[0] in cnt.keys():
             cnt[var[0]]=cnt[var[0]]+1
@@ -172,6 +173,7 @@ def rename(n,lisst,cnt):
             n.instr[k] = n.instr[k].replace(f'\t{var[0]} ', f'\t{var[0]}_{i} ', 1) #for some reason the ones with tab wont get replaced if not for this line
 
     #for the variables inside phi
+
     for y in n.ch:
         j=pre[y].index(n)
         for k in range(len(y.instr)):

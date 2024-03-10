@@ -38,7 +38,8 @@ for i in range(len(s)):
         l.append(i+1)
         # extract the block name after 'goto' and add it to block names
         blnum.append(s[i][s[i].find('goto ')+5:])
-
+        
+#add actual block name as leaders
 for i in blnum:
     l=l+list(filter(lambda x: i+':' in s[x],range(len(s))))
         
@@ -72,8 +73,6 @@ for i in range(len(s)):
         cur.oriv |= {k}
         var=var.union({k})
 
-#num of nodes in CFG
-numNodes=len(b.keys())
 
 cur=start
 temp=cur

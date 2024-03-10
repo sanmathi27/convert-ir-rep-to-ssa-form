@@ -73,8 +73,6 @@ for i in range(len(s)):
         cur.oriv |= {k}
         var=var.union({k})
 
-#num of nodes in CFG
-numNodes=len(b.keys())
 
 cur=start
 temp=cur

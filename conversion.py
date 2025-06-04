@@ -3,94 +3,144 @@
 #so, we read script ; identify block leaders based on 'goto' and extarct block names form here
 #we create the basic block, add edges ;  original vars are identified ; cfg printed
 
-#ive ignored the 'if' for the leaders recognition, sorry
+import re
 
-import re  # for identifying regular exps
-
-
-#class rep for basic blocks
 class block:
-    def __init__(self,n):
-        self.name=n #block name
-        self.instr=[] #instructions in each basic block
-        self.oriv=set() #original variables
-        self.ch=[] #child node
-        self.dom=set([self]) #dominance frontier
+    def __init__(self, n):
+        self.name = n #block name B1, B2 etc
+        self.instr = [] #list of instrs in that block
+        self.oriv = set() #variables used in the block
+        self.ch = [] #children blocks
+        self.dom = set([self]) # dominators, initially only itself
 
-    def disp(self):
-        print()
-        print(self.name)
-        
+    def disp(self): # display the instructions in the block
+        print(f"\n{self.name}")
         for i in self.instr:
             print(i)
 
-#read input file
-var=set() #for the variables seen
-f = open("test.txt", "r")
-t=f.read()
-l=[0] #list to store line number for the leaders
-blnum=[] #basic block number
-s=t.split('\n')
+    def children(self): # display the children of the block
+        for child in self.ch:
+            if child is not None :
+                print(f"{self.name} -> {child.name}")
 
-for i in range(len(s)):
-    if 'goto ' in s[i]:
-        # if 'goto' statement is found, add next line as leader
-        l.append(i+1)
-        # extract the block name after 'goto' and add it to block names
-        blnum.append(s[i][s[i].find('goto ')+5:])
-        
-#add actual block name as leaders
-for i in blnum:
-    l=l+list(filter(lambda x: i+':' in s[x],range(len(s))))
-        
-l.sort()
 
-j=1
-cur=None
-start=None #start block
-b={} #block dict
-bl=[] #list to store blocks
-for i in range(len(s)):
-    if i in l:#if line num is leader, create block
-        temp=cur
-        cur=block('B'+str(j))
+
+# Read input file
+var = set()
+with open("test.txt", "r") as f:
+    s = f.read().split('\n')
+
+l = [0]  # line numbers of leaders
+blnum = []  # list of target labels L1, L2 etc
+n = len(s) # number of lines in input
+
+# Identify leaders
+for i in range(n):
+    line = s[i] #ith line in input
+
+    if 'if ' in line and 'goto' in line:
+        # Conditional jump: Conditional jump — next line is fall-through leader
+        l.append(i + 1)  # fall-through
+        label = line[line.find('goto ') + 5:].strip()
+        blnum.append(label)
+
+    elif 'goto' in line:
+        # Unconditional jump: next line is fall-through leader
+        l.append(i + 1)
+        label = line[line.find('goto ') + 5:].strip()
+        blnum.append(label)
+
+# Add label lines
+for label in blnum:
+    for x in range(n):
+        if s[x].strip().startswith(label + ':'):
+            l.append(x)
+
+l = sorted(set(l))
+
+# Build basic blocks
+cur = None
+start = None
+bl = [] # list of blocks
+b = {} #label->block
+j = 1 # block counter
+
+for i in range(n):
+    if i in l: # if line is a leader
+        temp = cur
+        cur = block('B' + str(j)) # create a new block
         bl.append(cur)
-        b[s[i].strip()]=cur
-        #set start block, if its first block, or append new block as child of prev block
-        if temp==None:
-            start=cur
+        if ':' in s[i]:  # if line is a label
+            label_name = s[i].strip().split(':')[0] + ':'  # ensure it's like 'L1:'
+            b[label_name] = cur # map label to block
+        if temp is None:
+            start = cur # first block
         else:
-            temp.ch.append(cur)
-        j=j+1
-    cur.instr.append(s[i]) # add inst to the current block
-    x=s[i]
-    if s[i].find('goto ')!=-1:#extract blck name afetr 'goto'
-        x=s[i][:s[i].find('goto ')]
-    #find all vars in the inst and arr to oriv(original variables)
-    for k in re.findall('\w\w*:?',x):
-        if k=='if' or k.isnumeric() or ':' in k:
+            #if prev block doesnt end in unconditional goto, connect it to current new block
+            if 'goto' not in temp.instr[-1] or ('if' in temp.instr[-1]):
+                temp.ch.append(cur)
+        j += 1
+
+    cur.instr.append(s[i])
+    x = s[i].split('goto')[0] if 'goto' in s[i] else s[i]
+
+# Skip label lines (e.g., "L1: x = 1")
+    x = re.sub(r'^\s*\w+:\s*', '', x)
+
+    for k in re.findall(r'\b\w+\b', x):
+        if k == 'if' or k.isnumeric():
             continue
-        cur.oriv |= {k}
-        var=var.union({k})
+    # Skip labels like L1, L2, L3
+        if re.match(r'^L\d+$', k):
+            continue
+        cur.oriv.add(k)
+        var.add(k)
 
 
-cur=start
-temp=cur
-while cur!=None:
-    #surf through cfg and add edges based on the 'goto' stats
-    if len(cur.ch)>0:
-        temp=cur.ch[0]
+
+# Resolve jump edges for all blocks
+for idx, blk in enumerate(bl):
+    if not blk.instr: # Skip empty blocks
+        continue
+
+    last = blk.instr[-1] # Last instruction in the block
+
+    if 'if' in last and 'goto' in last:
+        # Conditional branch: both true (goto) and false (fall-through)
+        target_label = last[last.find('goto ') + 5:].strip() + ':'
+        true_branch = b.get(target_label)
+        if true_branch and true_branch not in blk.ch:
+            blk.ch.append(true_branch)
+
+        # Fall-through block
+        if idx + 1 < len(bl):
+            fallthrough = bl[idx + 1]
+            if fallthrough not in blk.ch:
+                blk.ch.append(fallthrough)
+
+    elif 'goto' in last:
+        # Unconditional branch
+        target_label = last[last.find('goto ') + 5:].strip() + ':'
+        jump_block = b.get(target_label)
+        if jump_block:
+            blk.ch = [jump_block]
+
     else:
-        temp=None
-    i=cur.instr[len(cur.instr)-1]
-    if 'goto' in i:
-        if 'if ' not in i:
-            cur.ch=[b[i[i.find('goto ')+5:].strip()+':']]
-        else:
-            cur.ch.append(b[i[i.find('goto ')+5:].strip()+':'])
+        # No jump: fall-through to next block
+        if idx + 1 < len(bl):
+            next_block = bl[idx + 1]
+            if next_block not in blk.ch:
+                blk.ch.append(next_block)
 
-    cur=temp
 
-print('CFG\n\n')
-for i in bl:
-    i.disp()
+# Print CFG
+print('CFG\n')
+for block in bl:
+    block.disp()
+
+print('\nCFG Edges:')
+for block in bl:
+    block.children()
+
+for i in var:
+    print(i)

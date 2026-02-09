@@ -1,7 +1,7 @@
 #generation of cfg basic blocks
 
-#so, we read script ; identify block leaders based on 'goto' and extarct block names form here
-#we create the basic block, add edges ;  original vars are identified ; cfg printed
+#so, we read script ; identify block leaders based on 'goto' and extract block names from here
+#we create the basic block, add edges ; original vars are identified ; cfg printed
 
 import re
 
@@ -39,7 +39,7 @@ for i in range(n):
     line = s[i] #ith line in input
 
     if 'if ' in line and 'goto' in line:
-        # Conditional jump: Conditional jump — next line is fall-through leader
+        # Conditional jump: next line is fall-through leader
         l.append(i + 1)  # fall-through
         label = line[line.find('goto ') + 5:].strip()
         blnum.append(label)
@@ -67,30 +67,26 @@ j = 1 # block counter
 
 for i in range(n):
     if i in l: # if line is a leader
-        temp = cur
         cur = block('B' + str(j)) # create a new block
         bl.append(cur)
         if ':' in s[i]:  # if line is a label
-            label_name = s[i].strip().split(':')[0] + ':'  # ensure it's like 'L1:'
+            label_name = s[i].strip().split(':')[0]  # extract label without colon
             b[label_name] = cur # map label to block
-        if temp is None:
+        if start is None:
             start = cur # first block
-        else:
-            #if prev block doesnt end in unconditional goto, connect it to current new block
-            if 'goto' not in temp.instr[-1] or ('if' in temp.instr[-1]):
-                temp.ch.append(cur)
         j += 1
 
     cur.instr.append(s[i])
+    
+    # Extract variables from the line
     x = s[i].split('goto')[0] if 'goto' in s[i] else s[i]
-
-# Skip label lines (e.g., "L1: x = 1")
+    # Skip label prefix (e.g., "L1: x = 1" -> "x = 1")
     x = re.sub(r'^\s*\w+:\s*', '', x)
 
     for k in re.findall(r'\b\w+\b', x):
         if k == 'if' or k.isnumeric():
             continue
-    # Skip labels like L1, L2, L3
+        # Skip labels like L1, L2, L3
         if re.match(r'^L\d+$', k):
             continue
         cur.oriv.add(k)
@@ -107,7 +103,7 @@ for idx, blk in enumerate(bl):
 
     if 'if' in last and 'goto' in last:
         # Conditional branch: both true (goto) and false (fall-through)
-        target_label = last[last.find('goto ') + 5:].strip() + ':'
+        target_label = last[last.find('goto ') + 5:].strip()  # no colon
         true_branch = b.get(target_label)
         if true_branch and true_branch not in blk.ch:
             blk.ch.append(true_branch)
@@ -119,11 +115,11 @@ for idx, blk in enumerate(bl):
                 blk.ch.append(fallthrough)
 
     elif 'goto' in last:
-        # Unconditional branch
-        target_label = last[last.find('goto ') + 5:].strip() + ':'
+        # Unconditional branch (no fall-through)
+        target_label = last[last.find('goto ') + 5:].strip()  # no colon
         jump_block = b.get(target_label)
-        if jump_block:
-            blk.ch = [jump_block]
+        if jump_block and jump_block not in blk.ch:
+            blk.ch.append(jump_block)
 
     else:
         # No jump: fall-through to next block
@@ -142,5 +138,6 @@ print('\nCFG Edges:')
 for block in bl:
     block.children()
 
+print('\nVariables:')
 for i in var:
     print(i)

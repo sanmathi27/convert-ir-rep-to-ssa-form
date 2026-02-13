@@ -31,6 +31,7 @@ def DFS(p, n, depfnums, vertex, parent, pre):
         for w in n.ch:
             DFS(n, w, depfnums, vertex, parent, pre)
 
+# part of lengauer-tarjan algo, find ancestor whose semi-dominator has lowest depfnums
 def ancsoflowsemi(v, ancs, depfnums, semi):
     u = v
     while ancs[v] is not None:
@@ -116,16 +117,19 @@ def returnVar(s):
     return var_list
 
 
-# find last occurence of substr in str
-def findvars(string, substr, n):
-    parts = string.split(substr, n + 1)
-    if len(parts) <= n + 1:
-        return -1
-    return len(string) - len(parts[-1]) - len(substr)
+# find nth occurence of substr in str (0-indexed)
+def findNthOccurrence(string, substr, n):
+    start = 0
+    for i in range(n + 1):
+        pos = string.find(substr, start)
+        if pos == -1:
+            return -1
+        start = pos + 1
+    return pos
 
 # return last element of list
 def last(x):
-    return x[-1]
+    return x[-1] if x else 0
 
 # initialize lists and call renaming
 def process():
@@ -136,73 +140,150 @@ def process():
         lisst[a] = [0]
     rename(start, lisst, cnt)
 
-replaced_vars = set()
-
 def rename(n, lisst, cnt):
-    o = copy.deepcopy(n.instr)
+    # save stack state at entry
+    saved_stacks = {}
+    for v in var:
+        saved_stacks[v] = len(lisst[v])
+    
+    # process each instruction in the block
     for k in range(len(n.instr)):
-        s = ' ' + n.instr[k] + ' '
-        n.instr[k] = s
+        s = n.instr[k].strip()
+        
+        if not s:
+            continue
+        
+        # handle phi nodes
+        if '$' in s:
+            vars_here = returnVar(s)
+            if len(vars_here) > 0:
+                lhs = vars_here[0]
+                # remove any existing subscript
+                if '_' in lhs:
+                    lhs = lhs[:lhs.find('_')]
+                lhs = lhs.strip()
+                
+                if lhs in cnt:
+                    cnt[lhs] += 1
+                    i = cnt[lhs]
+                    lisst[lhs].append(i)
+                    # replace LHS in phi
+                    n.instr[k] = re.sub(rf'\b{lhs}\b', f'{lhs}_{i}', n.instr[k], count=1)
+            continue
+        
+        # regular instructions
+        original_line = n.instr[k]
         vars_here = returnVar(s)
-        temp = vars_here
-
-        if '$' not in s:
-            if 'if' not in s and len(vars_here) > 0:
-                temp = vars_here[1:]  # exclude the ‘if’-condition variable
-
-            # rename using the variable counting
-            for x in temp:
-                i = last(lisst[x])
-                # safe replace: only whole-word matches
-                n.instr[k] = re.sub(rf'\b{x}\b', f'{x}_{i}', n.instr[k])
-                s = n.instr[k]
-
-        # increment variable count (for definitions)
-        if (len(vars_here) > 0 and 'if' not in s and 'goto' not in s 
-            and vars_here[0] in cnt):
-            v0 = vars_here[0]
-            cnt[v0] += 1
-            i = cnt[v0]
-            lisst[v0].append(i)
-            # replace the first occurrence of v0
-            n.instr[k] = re.sub(rf'\b{v0}\b', f'{v0}_{i}', n.instr[k], count=1)
-            n.instr[k] = n.instr[k].replace(f'\t{v0} ', f'\t{v0}_{i} ', 1)
-
-    # rename inside each phi‐node of children
+        
+        # check if it's an assignment
+        is_assignment = '=' in s and 'if' not in s and len(vars_here) > 0
+        
+        if is_assignment:
+            lhs = vars_here[0]
+            rhs_vars = vars_here[1:]
+            
+            # find where '=' is to split LHS and RHS
+            eq_pos = original_line.find('=')
+            lhs_part = original_line[:eq_pos]
+            rhs_part = original_line[eq_pos:]
+            
+            # rename RHS variables
+            for x in rhs_vars:
+                if x in lisst:
+                    version = last(lisst[x])
+                    rhs_part = re.sub(rf'\b{re.escape(x)}\b', f'{x}_{version}', rhs_part)
+            
+            # handle LHS definition
+            if lhs in cnt:
+                cnt[lhs] += 1
+                i = cnt[lhs]
+                lisst[lhs].append(i)
+                # replace LHS (which is still unmodified)
+                lhs_part = re.sub(rf'\b{re.escape(lhs)}\b', f'{lhs}_{i}', lhs_part, count=1)
+            
+            n.instr[k] = lhs_part + rhs_part
+            
+        else:
+            # no assignment, rename all uses
+            temp_instr = n.instr[k]
+            for x in vars_here:
+                if x in lisst:
+                    version = last(lisst[x])
+                    temp_instr = re.sub(rf'\b{re.escape(x)}\b', f'{x}_{version}', temp_instr)
+            n.instr[k] = temp_instr
+    
+    # fill phi arguments in successors
     for y in n.ch:
-        # j = index of n among y’s predecessors
-        j = pre[y].index(n)
+        j = None
+        for idx, pred in enumerate(pre[y]):
+            if pred == n:
+                j = idx
+                break
+        
+        if j is None:
+            continue
+        
         for k in range(len(y.instr)):
             line = y.instr[k]
-            if '$' in line:
-                # a is the phi‐variable (e.g. ‘x’ in “x = $( x , x )”)
-                a = returnVar(line)[0]
-                if '_' in a:
-                    a = a[:a.find('_')]
-                a = a.strip()
-                ind = findvars(line, a, j + 1)
-                if ind != -1 and a in allVar:
-                    # replace the j-th occurrence of ‘a’ with its current version
-                    version = last(lisst[a])
-                    y.instr[k] = line[:ind] + f'{a}_{version}' + line[ind+len(a):]
-
-    # Recursively rename in the dominator‐tree children
+            if '$' not in line:
+                continue
+            
+            vars_in_phi = returnVar(line)
+            if not vars_in_phi:
+                continue
+            
+            phi_var = vars_in_phi[0]
+            if '_' in phi_var:
+                phi_var = phi_var[:phi_var.find('_')]
+            phi_var = phi_var.strip()
+            
+            if phi_var not in lisst:
+                continue
+            
+            # find the (j+1)-th occurrence of phi_var (skip LHS, count RHS)
+            pos = findNthOccurrence(line, phi_var, j + 1)
+            if pos != -1:
+                version = last(lisst[phi_var])
+                # check if it's a whole word match
+                if (pos == 0 or not line[pos-1].isalnum()) and \
+                   (pos + len(phi_var) >= len(line) or not line[pos + len(phi_var)].isalnum()):
+                    y.instr[k] = line[:pos] + f'{phi_var}_{version}' + line[pos + len(phi_var):]
+    
+    # recurse on dominator tree children
     for x in n.dom:
         if x == n:
             continue
         rename(x, lisst, cnt)
+    
+    # pop stack
+    for v in var:
+        while len(lisst[v]) > saved_stacks[v]:
+            lisst[v].pop()
+
+
 
 def insertPhi(defi, DF, phi, pre):
+    # collect definitions
     for n in bl:
-        for a in n.oriv:
-            if ':' in a:  # Skippedd label-like variables
+        for instr in n.instr:
+            instr = instr.strip()
+            if not instr or '$' in instr:
                 continue
-            if a not in defi:
-                defi[a] = set()
-            defi[a].add(n)
-
+            
+            # skip labels without assignments
+            if ':' in instr and '=' not in instr:
+                continue
+            
+            vars_here = returnVar(instr)
+            if '=' in instr and 'if' not in instr and len(vars_here) > 0:
+                v = vars_here[0]
+                if v not in defi:
+                    defi[v] = set()
+                defi[v].add(n)
+    
+    # insert phi nodes
     for a in var:
-        if ':' in a:  # Skip labels
+        if ':' in a:
             continue
         phi[a] = set()
         w = defi.get(a, set()).copy()
@@ -216,7 +297,7 @@ def insertPhi(defi, DF, phi, pre):
                     line = line[:-2] + ' )'
                     Y.instr.insert(0, line)
                     phi[a].add(Y)
-                    if a not in Y.oriv:
+                    if Y not in defi.get(a, set()):
                         w.add(Y)
 
 
@@ -236,32 +317,30 @@ def computeDF(n, DF):
     DF[n] = S
 
 
-# 1) Build the dominator tree
+# build the dominator tree
 immdom = dominators(start)
 for i in immdom:
     if immdom[i] is not None:
         immdom[i].dom.add(i)
 
-# 2) Compute dominance frontiers
+# compute dominance frontiers
 DF = {}
 computeDF(start, DF)
 
-# 3) Convert each set of predecessors from `pre[...]` into a list
+# convert each set of predecessors into a list
 for i in pre:
     pre[i] = list(pre[i])
 
-# 4) Insert phi‐nodes
+# insert phi-nodes
 phi = {}
 defi = {}
 insertPhi(defi, DF, phi, pre)
 
-# 5) Rename variables to finalize SSA
+# rename variables to finalize SSA
 allVar = var
 process()
 
-# 6) Print out the final SSA form
+# print out the final SSA form
 print('\n\nSSA\n\n')
 for blk in bl:
     blk.disp()
-
-    

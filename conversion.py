@@ -1,6 +1,6 @@
 #generation of cfg basic blocks
 
-#so, we read script ; identify block leaders based on 'goto' and extract block names from here
+#so, we read script ; identify block leaders based on 'goto' and 'if' and extract block names from here
 #we create the basic block, add edges ; original vars are identified ; cfg printed
 
 import re
@@ -25,7 +25,6 @@ class block:
 
 
 
-# Read input file
 var = set()
 with open("test.txt", "r") as f:
     s = f.read().split('\n')
@@ -34,23 +33,23 @@ l = [0]  # line numbers of leaders
 blnum = []  # list of target labels L1, L2 etc
 n = len(s) # number of lines in input
 
-# Identify leaders
+# identify leaders
 for i in range(n):
     line = s[i] #ith line in input
 
     if 'if ' in line and 'goto' in line:
-        # Conditional jump: next line is fall-through leader
+        # conditional jump: next line is fall-through leader
         l.append(i + 1)  # fall-through
         label = line[line.find('goto ') + 5:].strip()
         blnum.append(label)
 
     elif 'goto' in line:
-        # Unconditional jump: next line is fall-through leader
+        # inconditional jump: next line is fall-through leader
         l.append(i + 1)
         label = line[line.find('goto ') + 5:].strip()
         blnum.append(label)
 
-# Add label lines
+# add label lines
 for label in blnum:
     for x in range(n):
         if s[x].strip().startswith(label + ':'):
@@ -58,7 +57,6 @@ for label in blnum:
 
 l = sorted(set(l))
 
-# Build basic blocks
 cur = None
 start = None
 bl = [] # list of blocks
@@ -78,15 +76,15 @@ for i in range(n):
 
     cur.instr.append(s[i])
     
-    # Extract variables from the line
+    # extract variables from the line
     x = s[i].split('goto')[0] if 'goto' in s[i] else s[i]
-    # Skip label prefix (e.g., "L1: x = 1" -> "x = 1")
+    # skip label prefix 
     x = re.sub(r'^\s*\w+:\s*', '', x)
 
     for k in re.findall(r'\b\w+\b', x):
         if k == 'if' or k.isnumeric():
             continue
-        # Skip labels like L1, L2, L3
+        # skip labels like L1, L2, L3
         if re.match(r'^L\d+$', k):
             continue
         cur.oriv.add(k)
@@ -94,42 +92,42 @@ for i in range(n):
 
 
 
-# Resolve jump edges for all blocks
+# resolve jump edges for all blocks
 for idx, blk in enumerate(bl):
-    if not blk.instr: # Skip empty blocks
+    if not blk.instr: 
         continue
 
-    last = blk.instr[-1] # Last instruction in the block
+    last = blk.instr[-1] # last instruction in the block
 
     if 'if' in last and 'goto' in last:
-        # Conditional branch: both true (goto) and false (fall-through)
-        target_label = last[last.find('goto ') + 5:].strip()  # no colon
+        # conditional branch: both true (goto) and false (fall-through)
+        target_label = last[last.find('goto ') + 5:].strip()  
         true_branch = b.get(target_label)
         if true_branch and true_branch not in blk.ch:
             blk.ch.append(true_branch)
 
-        # Fall-through block
+        # fall-through block
         if idx + 1 < len(bl):
             fallthrough = bl[idx + 1]
             if fallthrough not in blk.ch:
                 blk.ch.append(fallthrough)
 
     elif 'goto' in last:
-        # Unconditional branch (no fall-through)
-        target_label = last[last.find('goto ') + 5:].strip()  # no colon
+        # unconditional branch (no fall-through)
+        target_label = last[last.find('goto ') + 5:].strip()  
         jump_block = b.get(target_label)
         if jump_block and jump_block not in blk.ch:
             blk.ch.append(jump_block)
 
     else:
-        # No jump: fall-through to next block
+        # no jump: fall-through to next block
         if idx + 1 < len(bl):
             next_block = bl[idx + 1]
             if next_block not in blk.ch:
                 blk.ch.append(next_block)
 
 
-# Print CFG
+# print CFG
 print('CFG\n')
 for block in bl:
     block.disp()

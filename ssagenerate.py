@@ -300,7 +300,7 @@ def insertPhi(defi, DF, phi, pre):
                     if Y not in defi.get(a, set()):
                         w.add(Y)
 
-
+# call to compute the dominance frontier for each node
 def computeDF(n, DF):
     S = set()
     for y in n.ch:
